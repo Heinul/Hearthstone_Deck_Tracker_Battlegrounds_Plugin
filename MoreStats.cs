@@ -115,6 +115,27 @@ public sealed class CardStats
         };
     }
 
+    // Placement gain, on this turn, of buying minions of a whole tavern tier (weighted by games). Proxy for "is being at
+    // that tier now worth it". Null when the tier has too few games on that turn.
+    readonly Dictionary<(int turn, int tier), double?> _tierCache = new();
+    public double? TierDelta(int turn, int tier)
+    {
+        lock (_tierCache)
+        {
+            if (_tierCache.TryGetValue((turn, tier), out var cached)) return cached;
+            double num = 0; long den = 0;
+            foreach (var c in ByCardId.Values)
+            {
+                if (c.CardId == null || !HearthDb.Cards.All.TryGetValue(c.CardId, out var card) || card.TechLevel != tier || card.Type != HearthDb.Enums.CardType.MINION) continue;
+                var t = c.TurnStats?.FirstOrDefault(x => x.Turn == turn);
+                if (t is { TotalPlayed: >= 30, AveragePlacement: double p, AveragePlacementOther: double o }) { num += (o - p) * t.TotalPlayed; den += t.TotalPlayed; }
+            }
+            var result = den >= 300 ? num / den : (double?)null;
+            _tierCache[(turn, tier)] = result;
+            return result;
+        }
+    }
+
     // Placement gain from buying this card on this turn: (avg when not bought) - (avg when bought). Positive = good.
     // Uses the turn row when it has enough games, else the overall row. Null when the card is unknown.
     public (double delta, long sample, bool turnSpecific)? Delta(string cardId, int turn)
@@ -312,13 +333,17 @@ public sealed class CompStats
             .Where(c => c.Tribe == null || tribes.Count == 0 || tribes.Contains(c.Tribe.Value))
             .OrderByDescending(c => c.DataPoints)
             .Take(max)
-            .Select((c, i) => new BattlegroundsCompStats.LobbyComp
+            .Select((c, i) =>
             {
-                Id = i + 1,
-                Name = Label(c.Archetype),
-                Popularity = c.Popularity(total),
-                KeyMinionsTop3 = c.KeyMinionDbfIds,
-                AvgFinalPlacement = c.AtMmr.TryGetValue(percentile, out var a) && a.dataPoints >= 100 ? a.placement : c.AveragePlacement ?? 0,
+                var avg = c.AtMmr.TryGetValue(percentile, out var a) && a.dataPoints >= 100 ? a.placement : c.AveragePlacement ?? 0;
+                return new BattlegroundsCompStats.LobbyComp
+                {
+                    Id = i + 1,
+                    Name = $"[{Cdn.Tier(avg)?.ToUpperInvariant() ?? "?"}] {Label(c.Archetype)}",   // HDT's row has no tier slot; prefix the name
+                    Popularity = c.Popularity(total),
+                    KeyMinionsTop3 = c.KeyMinionDbfIds,
+                    AvgFinalPlacement = avg,
+                };
             })
             .ToList();
     }

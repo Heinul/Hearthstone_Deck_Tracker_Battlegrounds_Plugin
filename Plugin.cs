@@ -23,7 +23,7 @@ public class Plugin : IPlugin
     public string Description => "Battlegrounds hero / trinket / comp stats from Firestone public data (personal Tier7 replacement)";
     public string ButtonText => "Self-check";
     public string Author => "Heinul";
-    public Version Version => new(0, 4, 0);
+    public Version Version => new(0, 4, 1);
     public MenuItem MenuItem => null!;
 
     // Self-update: HDT has no plugin updater. On load, compare the latest GitHub release tag with Version; if newer, drop
@@ -113,7 +113,8 @@ public class Plugin : IPlugin
     readonly System.Windows.Controls.Canvas _shopPanel = new() { IsHitTestVisible = false };
     readonly List<Border> _shopLabels = new();
     readonly Border _shopHeader = MakeLabel();   // "예상 조합: …" to the left of the tavern row
-    string _shopApplied = "";
+    readonly Border _levelLabel = MakeLabel();   // level-up hint under the tavern upgrade button
+    string _shopApplied = "", _levelApplied = "";
 
     static string NormalCardId(Entity e)
     {
@@ -128,7 +129,7 @@ public class Plugin : IPlugin
         if (shopping && Hearthstone_Deck_Tracker.Config.Instance.ShowBattlegroundsBrowser && overlay.BgsMinionPinningVisibility != Visibility.Visible)
             overlay.BgsMinionPinningVisibility = Visibility.Visible;   // HDT's tavern pinning: client-side only, Tier7-gated by HDT
 
-        if (_shopPanel.Parent == null) { Core.OverlayCanvas.Children.Add(_shopPanel); System.Windows.Controls.Panel.SetZIndex(_shopPanel, 100); _shopPanel.Children.Add(_shopHeader); }
+        if (_shopPanel.Parent == null) { Core.OverlayCanvas.Children.Add(_shopPanel); System.Windows.Controls.Panel.SetZIndex(_shopPanel, 100); _shopPanel.Children.Add(_shopHeader); _shopPanel.Children.Add(_levelLabel); }
         if (!_cards.TryGetValue(pct, out var loader))
             _cards[pct] = loader = new Loader<CardStats>($"card-stats mmr-{pct}", TimeSpan.FromHours(1), () => CardStats.LoadAsync(pct));
         var stats = loader.Get();
@@ -197,6 +198,33 @@ public class Plugin : IPlugin
             _shopHeader.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             System.Windows.Controls.Canvas.SetLeft(_shopHeader, f.X - _shopHeader.DesiredSize.Width - 10 * scale);
             System.Windows.Controls.Canvas.SetTop(_shopHeader, f.Y - _shopHeader.DesiredSize.Height - 2 * scale);
+            shown = true;
+        }
+        // Level-up hint: next turn, does buying (tier+1) minions beat buying current-tier minions? Proxy for upgrade timing.
+        var cur = game.Player.Hero?.GetTag(GameTag.PLAYER_TECH_LEVEL) ?? 0;
+        var levelKey = $"{pct}|{turn}|{cur}";
+        if (levelKey != _levelApplied)
+        {
+            var text = (System.Windows.Controls.TextBlock)_levelLabel.Child;
+            var up = cur is >= 1 and < 6 ? stats.TierDelta(turn + 1, cur + 1) : null;
+            var stay = cur >= 1 ? stats.TierDelta(turn + 1, cur) : null;
+            if (up is double u && stay is double s)
+            {
+                var diff = u - s;
+                text.Text = $"레벨업 {(diff >= 0.15 ? "▲" : diff <= -0.15 ? "▼" : "≈")} {diff:+0.0;-0.0}";
+                text.Foreground = diff >= 0.15 ? System.Windows.Media.Brushes.LimeGreen : diff <= -0.15 ? System.Windows.Media.Brushes.Orange : System.Windows.Media.Brushes.LightGray;
+                _levelLabel.Visibility = Visibility.Visible;
+            }
+            else _levelLabel.Visibility = Visibility.Collapsed;
+            _levelApplied = levelKey;
+            Log.Info($"BgFree: level hint ({levelKey}) up={up?.ToString("0.00") ?? "-"} stay={stay?.ToString("0.00") ?? "-"}");
+        }
+        if (_levelLabel.Visibility == Visibility.Visible)
+        {
+            ((System.Windows.Controls.TextBlock)_levelLabel.Child).FontSize = 14 * scale;
+            _levelLabel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            System.Windows.Controls.Canvas.SetLeft(_levelLabel, overlay.Width * 0.393 - _levelLabel.DesiredSize.Width);   // left of the upgrade button (16:9 layout)
+            System.Windows.Controls.Canvas.SetTop(_levelLabel, overlay.Height * 0.176 - _levelLabel.DesiredSize.Height / 2);
             shown = true;
         }
         _shopPanel.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
