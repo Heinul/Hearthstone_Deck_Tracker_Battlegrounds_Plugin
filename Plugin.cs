@@ -23,7 +23,7 @@ public class Plugin : IPlugin
     public string Description => "Battlegrounds hero / trinket / comp stats from Firestone public data (personal Tier7 replacement)";
     public string ButtonText => "Self-check";
     public string Author => "Heinul";
-    public Version Version => new(0, 4, 1);
+    public Version Version => new(0, 4, 2);
     public MenuItem MenuItem => null!;
 
     // Self-update: HDT has no plugin updater. On load, compare the latest GitHub release tag with Version; if newer, drop
@@ -136,7 +136,8 @@ public class Plugin : IPlugin
         var items = OppBoardItems?.GetValue(overlay) as System.Windows.Controls.ItemsControl;
         if (!shopping || stats == null || items == null) { _shopPanel.Visibility = Visibility.Collapsed; _shopApplied = ""; return; }
 
-        var minions = game.Opponent.Board.Where(x => x.IsMinion).OrderBy(x => x.GetTag(GameTag.ZONE_POSITION)).ToList();
+        // Tavern slots exactly as HDT lays them out (minions AND tavern spells take a slot); labels only on minions.
+        var minions = game.Opponent.Board.Where(x => x.TakesBoardSlot).OrderBy(x => x.GetTag(GameTag.ZONE_POSITION)).ToList();
         var turn = ((game.GameEntity?.GetTag(GameTag.TURN) ?? 0) + 1) / 2;
         var mine = game.Player.Board.Where(x => x.IsMinion).Select(NormalCardId).Where(id => id != "").ToList();
         var key = $"{pct}|{turn}|{string.Join(",", minions.Select(m => m.Id))}|{string.Join(",", mine)}";
@@ -154,7 +155,7 @@ public class Plugin : IPlugin
             for (var i = 0; i < _shopLabels.Count; i++)
             {
                 var label = _shopLabels[i];
-                if (i >= minions.Count) { label.Visibility = Visibility.Collapsed; continue; }
+                if (i >= minions.Count || !minions[i].IsMinion) { label.Visibility = Visibility.Collapsed; continue; }   // spells keep their slot, no label
                 var cardId = NormalCardId(minions[i]);
                 var d = stats.Delta(cardId, turn);
                 var text = (System.Windows.Controls.TextBlock)label.Child;
