@@ -23,7 +23,7 @@ public class Plugin : IPlugin
     public string Description => "Battlegrounds hero / trinket / comp stats from Firestone public data (personal Tier7 replacement)";
     public string ButtonText => "Self-check";
     public string Author => "Heinul";
-    public Version Version => new(0, 4, 2);
+    public Version Version => new(0, 4, 3);
     public MenuItem MenuItem => null!;
 
     // Self-update: HDT has no plugin updater. On load, compare the latest GitHub release tag with Version; if newer, drop
@@ -114,7 +114,8 @@ public class Plugin : IPlugin
     readonly List<Border> _shopLabels = new();
     readonly Border _shopHeader = MakeLabel();   // "예상 조합: …" to the left of the tavern row
     readonly Border _levelLabel = MakeLabel();   // level-up hint under the tavern upgrade button
-    string _shopApplied = "", _levelApplied = "";
+    readonly List<Border> _pickLabels = new();   // discover ("하나 선택") options
+    string _shopApplied = "", _levelApplied = "", _pickApplied = "";
 
     static string NormalCardId(Entity e)
     {
@@ -141,11 +142,18 @@ public class Plugin : IPlugin
         var turn = ((game.GameEntity?.GetTag(GameTag.TURN) ?? 0) + 1) / 2;
         var mine = game.Player.Board.Where(x => x.IsMinion).Select(NormalCardId).Where(id => id != "").ToList();
         var key = $"{pct}|{turn}|{string.Join(",", minions.Select(m => m.Id))}|{string.Join(",", mine)}";
+        // Comp fit: which comps my board resembles (needs 3+ minions), and how often each card sits on their winning boards.
+        var comps = _comps.Get();
+        var inferred = comps != null && mine.Count >= 3 ? comps.Infer(mine, tribes) : new List<(CompStats.Comp comp, double score)>();
+
+        // Discover ("하나 선택"): the player's open choice, unless it is the trinket pick (handled by TrinketTick).
+        var picks = (game.Player.OfferedEntityIds?.ToList() ?? new List<int>())
+            .Select(id => game.Entities.TryGetValue(id, out var e) ? e : null)
+            .Where(e => e != null && !e.IsBattlegroundsTrinket && !e.IsHero).Select(e => e!).ToList();
+        var pickActive = picks.Count >= 2;
+
         if (key != _shopApplied)
         {
-            // Comp fit: which comps my board resembles (needs 3+ minions), and how often each shop card sits on their winning boards.
-            var comps = _comps.Get();
-            var inferred = comps != null && mine.Count >= 3 ? comps.Infer(mine, tribes) : new List<(CompStats.Comp comp, double score)>();
             var header = (System.Windows.Controls.TextBlock)_shopHeader.Child;
             header.Text = inferred.Count > 0 ? "예상 조합: " + string.Join(" / ", inferred.Select(x => $"{CompStats.Label(x.comp.Archetype)} {x.score:0%}")) : "";
             header.Foreground = System.Windows.Media.Brushes.Gold;
@@ -154,33 +162,43 @@ public class Plugin : IPlugin
             while (_shopLabels.Count < minions.Count) { var b = MakeLabel(); _shopLabels.Add(b); _shopPanel.Children.Add(b); }
             for (var i = 0; i < _shopLabels.Count; i++)
             {
-                var label = _shopLabels[i];
-                if (i >= minions.Count || !minions[i].IsMinion) { label.Visibility = Visibility.Collapsed; continue; }   // spells keep their slot, no label
-                var cardId = NormalCardId(minions[i]);
-                var d = stats.Delta(cardId, turn);
-                var text = (System.Windows.Controls.TextBlock)label.Child;
-                if (d is { } v)
-                {
-                    var fit = inferred.Count > 0 ? inferred.Max(x => x.comp.Fit(cardId)) : -1;   // -1 = no inference yet
-                    var offComp = fit >= 0 && fit < 0.03;   // strong card maybe, but absent from my comp's winning boards
-                    text.Text = $"{(offComp ? "✕ " : "")}{(v.delta >= 0 ? "+" : "")}{v.delta:0.0}{(v.turnSpecific ? "" : "*")}{(fit >= 0.25 ? " ★" : "")}";
-                    text.Foreground = offComp ? System.Windows.Media.Brushes.Silver
-                                    : v.delta >= 0.3 ? System.Windows.Media.Brushes.LimeGreen : v.delta >= 0.1 ? System.Windows.Media.Brushes.PaleGreen
-                                    : v.delta > -0.1 ? System.Windows.Media.Brushes.LightGray : v.delta > -0.3 ? System.Windows.Media.Brushes.Orange : System.Windows.Media.Brushes.OrangeRed;
-                    label.Visibility = Visibility.Visible;
-                }
-                else label.Visibility = Visibility.Collapsed;
+                if (i >= minions.Count || !minions[i].IsMinion) { _shopLabels[i].Visibility = Visibility.Collapsed; continue; }   // spells keep their slot, no label
+                _shopLabels[i].Visibility = SetHint(_shopLabels[i], minions[i], turn, stats, inferred) ? Visibility.Visible : Visibility.Collapsed;
             }
             _shopApplied = key;
             Log.Info($"BgFree: shop hints applied ({key}) labels={_shopLabels.Count(l => l.Visibility == Visibility.Visible)} comp={header.Text}");
+        }
+
+        var pickKey = pickActive ? $"{pct}|{turn}|{string.Join(",", picks.Select(p => p.Id))}|{string.Join(",", mine)}" : "";
+        if (pickKey != _pickApplied)
+        {
+            while (_pickLabels.Count < picks.Count) { var b = MakeLabel(); _pickLabels.Add(b); _shopPanel.Children.Add(b); }
+            for (var i = 0; i < _pickLabels.Count; i++)
+                _pickLabels[i].Visibility = i < picks.Count && picks[i].IsMinion && SetHint(_pickLabels[i], picks[i], turn, stats, inferred) ? Visibility.Visible : Visibility.Collapsed;
+            _pickApplied = pickKey;
+            if (pickActive) Log.Info($"BgFree: discover hints applied ({pickKey}) labels={_pickLabels.Count(l => l.Visibility == Visibility.Visible)}");
         }
         // Follow HDT's slot containers every tick (window moves / resizes). Slot i == i-th tavern minion in zone order.
         var scale = overlay.Height / 1080.0;
         var shown = false;
         Point? first = null;
+        // Discover options: HS lays them out centered, ~0.19 W apart; label above each card. Shop labels hide meanwhile.
+        for (var i = 0; i < _pickLabels.Count; i++)
+        {
+            var label = _pickLabels[i];
+            if (!pickActive || i >= picks.Count || label.Visibility == Visibility.Collapsed) { if (label.Visibility == Visibility.Visible) label.Visibility = Visibility.Collapsed; continue; }
+            ((System.Windows.Controls.TextBlock)label.Child).FontSize = 18 * scale;
+            label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            var cx = overlay.Width * (0.5 + (i - (picks.Count - 1) / 2.0) * 0.19);
+            System.Windows.Controls.Canvas.SetLeft(label, cx - label.DesiredSize.Width / 2);
+            System.Windows.Controls.Canvas.SetTop(label, overlay.Height * 0.115 - label.DesiredSize.Height);
+            shown = true;
+        }
         for (var i = 0; i < minions.Count && i < _shopLabels.Count; i++)
         {
             var label = _shopLabels[i];
+            if (pickActive) { if (label.Visibility == Visibility.Visible) label.Visibility = Visibility.Hidden; continue; }
+            if (label.Visibility == Visibility.Hidden) label.Visibility = Visibility.Visible;   // back from a discover
             if (items.ItemContainerGenerator.ContainerFromIndex(i) is not FrameworkElement slot || !slot.IsVisible || slot.ActualWidth == 0) { label.Visibility = Visibility.Hidden; continue; }
             Point p;
             try { p = slot.TransformToAncestor(Core.OverlayCanvas).Transform(new Point(0, 0)); }
@@ -193,7 +211,9 @@ public class Plugin : IPlugin
             System.Windows.Controls.Canvas.SetTop(label, p.Y - label.DesiredSize.Height - 2 * scale);
             shown = true;
         }
-        if (_shopHeader.Visibility == Visibility.Visible && first is Point f)
+        if (pickActive && _shopHeader.Visibility == Visibility.Visible) _shopHeader.Visibility = Visibility.Hidden;
+        if (!pickActive && _shopHeader.Visibility == Visibility.Hidden) _shopHeader.Visibility = Visibility.Visible;
+        if (_shopHeader.Visibility == Visibility.Visible && first is Point f && !pickActive)
         {
             ((System.Windows.Controls.TextBlock)_shopHeader.Child).FontSize = 15 * scale;
             _shopHeader.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -229,6 +249,21 @@ public class Plugin : IPlugin
             shown = true;
         }
         _shopPanel.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // Fills a hint label for a minion: buy delta this turn, ★ key piece / ✕ off-comp. False when the card has no data.
+    static bool SetHint(Border label, Entity e, int turn, CardStats stats, List<(CompStats.Comp comp, double score)> inferred)
+    {
+        var cardId = NormalCardId(e);
+        if (stats.Delta(cardId, turn) is not { } v) return false;
+        var fit = inferred.Count > 0 ? inferred.Max(x => x.comp.Fit(cardId)) : -1;   // -1 = no inference yet
+        var offComp = fit >= 0 && fit < 0.03;   // strong card maybe, but absent from my comp's winning boards
+        var text = (System.Windows.Controls.TextBlock)label.Child;
+        text.Text = $"{(offComp ? "✕ " : "")}{(v.delta >= 0 ? "+" : "")}{v.delta:0.0}{(v.turnSpecific ? "" : "*")}{(fit >= 0.25 ? " ★" : "")}";
+        text.Foreground = offComp ? System.Windows.Media.Brushes.Silver
+                        : v.delta >= 0.3 ? System.Windows.Media.Brushes.LimeGreen : v.delta >= 0.1 ? System.Windows.Media.Brushes.PaleGreen
+                        : v.delta > -0.1 ? System.Windows.Media.Brushes.LightGray : v.delta > -0.3 ? System.Windows.Media.Brushes.Orange : System.Windows.Media.Brushes.OrangeRed;
+        return true;
     }
 
     static Border MakeLabel() => new()
