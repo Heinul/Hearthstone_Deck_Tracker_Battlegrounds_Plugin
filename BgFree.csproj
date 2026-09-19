@@ -15,6 +15,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="setup/**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="System.Net.Http" />
     <Reference Include="HearthstoneDeckTracker">
       <HintPath>$(HdtDir)\HearthstoneDeckTracker.exe</HintPath>
