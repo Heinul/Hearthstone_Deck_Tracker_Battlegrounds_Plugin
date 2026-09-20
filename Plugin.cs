@@ -23,7 +23,7 @@ public class Plugin : IPlugin
     public string Description => "Battlegrounds hero / trinket / comp stats from Firestone public data (personal Tier7 replacement)";
     public string ButtonText => "Self-check";
     public string Author => "Heinul";
-    public Version Version => new(0, 4, 5);
+    public Version Version => new(0, 4, 6);
     public MenuItem MenuItem => null!;
 
     // Self-update: HDT has no plugin updater. On load, compare the latest GitHub release tag with Version; if newer, drop
@@ -273,42 +273,41 @@ public class Plugin : IPlugin
         var key = $"{pct}|{string.Join("/", tribes)}|{guides.Count}";
         if (key == _guidesApplied && vm.CompsByTier != null) return;   // HDT resets CompsByTier at match end / refresh -> re-apply
 
-        var total = stats.Comps.Sum(c => c.DataPoints);
+        // Tier = the guide's own tier (the badge HDT shows inside the guide), so list and detail agree. Guides without one
+        // get a Firestone-derived tier from the best-matching archetype's average placement. Lobby filter as Tier7 does.
         var playable = stats.Comps.Where(c => c.Tribe == null || tribes.Count == 0 || tribes.Contains(c.Tribe.Value)).ToList();
-        var ranked = new List<(Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds.Guides.Comps.BattlegroundsCompGuideViewModel guide, double avg)>();
-        var unranked = new List<Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds.Guides.Comps.BattlegroundsCompGuideViewModel>();
+        var byTier = new Dictionary<int, Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds.Guides.BattlegroundsCompsGuidesViewModel.TieredComps>();
+        int fromData = 0, hidden = 0;
         foreach (var g in guides)
         {
             var tribe = g.CompGuide.PrimaryTribe;
-            if (tribes.Count > 0 && tribe != 0 && !tribes.Contains(tribe)) continue;   // not playable in this lobby (Tier7 hides these too)
-            var core = (g.CompGuide.CoreCards ?? new List<int>()).Select(d => HearthDb.Cards.DbfIdToCardId.TryGetValue(d, out var id) ? id : null).Where(id => id != null).Select(id => id!).ToList();
-            var best = playable
-                .Where(c => c.Tribe == null || tribe == 0 || c.Tribe == tribe)
-                .Select(c => (comp: c, score: core.Count == 0 ? 0 : core.Average(id => c.Fit(id))))
-                .OrderByDescending(x => x.score).FirstOrDefault();
-            if (best.comp != null && best.score >= 0.08)
-                ranked.Add((g, best.comp.AtMmr.TryGetValue(pct, out var a) && a.dataPoints >= 100 ? a.placement : best.comp.AveragePlacement ?? 9));
-            else unranked.Add(g);
-        }
-        // Tiers are relative among the lobby's guides: best 20% S, then 25% A, 25% B, 20% C, rest D.
-        var sorted = ranked.OrderBy(x => x.avg).ToList();
-        var byTier = new Dictionary<int, Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds.Guides.BattlegroundsCompsGuidesViewModel.TieredComps>();
-        for (var i = 0; i < sorted.Count; i++)
-        {
-            var q = (i + 0.5) / sorted.Count;
-            var tier = q < 0.20 ? 1 : q < 0.45 ? 2 : q < 0.70 ? 3 : q < 0.90 ? 4 : 5;
+            var tier = g.CompGuide.Tier;
+            if (tribes.Count > 0 && tribe != 0 && !tribes.Contains(tribe)) { hidden++; tier = 7; }   // tribe not in this lobby: kept, grouped last
+            else if (tier is < 1 or > 5)
+            {
+                var core = (g.CompGuide.CoreCards ?? new List<int>()).Select(d => HearthDb.Cards.DbfIdToCardId.TryGetValue(d, out var id) ? id : null).Where(id => id != null).Select(id => id!).ToList();
+                var best = playable.Where(c => c.Tribe == null || tribe == 0 || c.Tribe == tribe)
+                    .Select(c => (comp: c, score: core.Count == 0 ? 0 : core.Average(id => c.Fit(id)))).OrderByDescending(x => x.score).FirstOrDefault();
+                if (best.comp != null && best.score >= 0.08)
+                {
+                    var avg = best.comp.AtMmr.TryGetValue(pct, out var a) && a.dataPoints >= 100 ? a.placement : best.comp.AveragePlacement ?? 9;
+                    tier = avg <= 3.3 ? 1 : avg <= 3.6 ? 2 : avg <= 3.9 ? 3 : avg <= 4.2 ? 4 : 5;
+                    fromData++;
+                }
+                else tier = 6;
+            }
             if (!byTier.TryGetValue(tier, out var t))
                 byTier[tier] = t = new() { TierLetter = TierLetter(tier), TierColor = TierBrush(tier), Comps = new() };
-            t.Comps!.Add(sorted[i].guide);
+            t.Comps!.Add(g);
         }
-        if (unranked.Count > 0)
-            byTier[6] = new() { TierLetter = "?", TierColor = TierBrush(6), Comps = unranked.OrderBy(g => g.CompGuide.Name).ToList() };
+        foreach (var t in byTier.Values)
+            t.Comps = t.Comps!.OrderBy(g => g.CompGuide.TierRank).ThenBy(g => g.CompGuide.Name).ToList();
         SetCompsByTier.Invoke(vm, new object?[] { byTier.OrderBy(kv => kv.Key).ToDictionary(kv => kv.Key, kv => kv.Value) });
         _guidesApplied = key;
-        Log.Info($"BgFree: comp guides tiered ({key}) ranked={sorted.Count} unranked={unranked.Count} hidden={guides.Count - sorted.Count - unranked.Count}");
+        Log.Info($"BgFree: comp guides tiered ({key}) shown={guides.Count - hidden} hidden={hidden} tierFromData={fromData}");
     }
 
-    static string TierLetter(int tier) => tier switch { 1 => "S", 2 => "A", 3 => "B", 4 => "C", 5 => "D", _ => "?" };
+    static string TierLetter(int tier) => tier switch { 1 => "S", 2 => "A", 3 => "B", 4 => "C", 5 => "D", 7 => "✕ 로비 제외", _ => "?" };
 
     static System.Windows.Media.LinearGradientBrush TierBrush(int tier)
     {
