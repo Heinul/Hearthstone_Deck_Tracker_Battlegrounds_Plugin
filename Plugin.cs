@@ -23,7 +23,7 @@ public class Plugin : IPlugin
     public string Description => "Battlegrounds hero / trinket / comp stats from Firestone public data (personal Tier7 replacement)";
     public string ButtonText => "Self-check";
     public string Author => "Heinul";
-    public Version Version => new(0, 4, 4);
+    public Version Version => new(0, 4, 5);
     public MenuItem MenuItem => null!;
 
     // Self-update: HDT has no plugin updater. On load, compare the latest GitHub release tag with Version; if newer, drop
@@ -147,10 +147,12 @@ public class Plugin : IPlugin
         var comps = _comps.Get();
         var inferred = comps != null && mine.Count >= 3 ? comps.Infer(mine, tribes) : new List<(CompStats.Comp comp, double score)>();
 
-        // Discover ("하나 선택"): the player's open choice, unless it is the trinket pick (handled by TrinketTick).
-        var picks = (game.Player.OfferedEntityIds?.ToList() ?? new List<int>())
-            .Select(id => game.Entities.TryGetValue(id, out var e) ? e : null)
-            .Where(e => e != null && !e.IsBattlegroundsTrinket && !e.IsHero).Select(e => e!).ToList();
+        // Open choice: discover ("하나 선택") gets hint labels; the trinket pick is handled by TrinketTick. Either way the
+        // choice UI covers the tavern, so tavern labels / header / level hint hide while any choice is open.
+        var offeredNow = (game.Player.OfferedEntityIds?.ToList() ?? new List<int>())
+            .Select(id => game.Entities.TryGetValue(id, out var e) ? e : null).Where(e => e != null).Select(e => e!).ToList();
+        var choiceOpen = offeredNow.Count > 0;
+        var picks = offeredNow.Where(e => !e.IsBattlegroundsTrinket && !e.IsHero).ToList();
         var pickActive = picks.Count >= 2;
 
         if (key != _shopApplied)
@@ -198,8 +200,8 @@ public class Plugin : IPlugin
         for (var i = 0; i < minions.Count && i < _shopLabels.Count; i++)
         {
             var label = _shopLabels[i];
-            if (pickActive) { if (label.Visibility == Visibility.Visible) label.Visibility = Visibility.Hidden; continue; }
-            if (label.Visibility == Visibility.Hidden) label.Visibility = Visibility.Visible;   // back from a discover
+            if (choiceOpen) { if (label.Visibility == Visibility.Visible) label.Visibility = Visibility.Hidden; continue; }
+            if (label.Visibility == Visibility.Hidden) label.Visibility = Visibility.Visible;   // back from a choice
             if (items.ItemContainerGenerator.ContainerFromIndex(i) is not FrameworkElement slot || !slot.IsVisible || slot.ActualWidth == 0) { label.Visibility = Visibility.Hidden; continue; }
             Point p;
             try { p = slot.TransformToAncestor(Core.OverlayCanvas).Transform(new Point(0, 0)); }
@@ -212,9 +214,9 @@ public class Plugin : IPlugin
             System.Windows.Controls.Canvas.SetTop(label, p.Y - label.DesiredSize.Height - 2 * scale);
             shown = true;
         }
-        if (pickActive && _shopHeader.Visibility == Visibility.Visible) _shopHeader.Visibility = Visibility.Hidden;
-        if (!pickActive && _shopHeader.Visibility == Visibility.Hidden) _shopHeader.Visibility = Visibility.Visible;
-        if (_shopHeader.Visibility == Visibility.Visible && first is Point f && !pickActive)
+        if (choiceOpen && _shopHeader.Visibility == Visibility.Visible) _shopHeader.Visibility = Visibility.Hidden;
+        if (!choiceOpen && _shopHeader.Visibility == Visibility.Hidden) _shopHeader.Visibility = Visibility.Visible;
+        if (_shopHeader.Visibility == Visibility.Visible && first is Point f && !choiceOpen)
         {
             ((System.Windows.Controls.TextBlock)_shopHeader.Child).FontSize = 15 * scale;
             _shopHeader.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -241,6 +243,8 @@ public class Plugin : IPlugin
             _levelApplied = levelKey;
             Log.Info($"BgFree: level hint ({levelKey}) up={up?.ToString("0.00") ?? "-"} stay={stay?.ToString("0.00") ?? "-"}");
         }
+        if (choiceOpen && _levelLabel.Visibility == Visibility.Visible) _levelLabel.Visibility = Visibility.Hidden;
+        if (!choiceOpen && _levelLabel.Visibility == Visibility.Hidden) _levelLabel.Visibility = Visibility.Visible;
         if (_levelLabel.Visibility == Visibility.Visible)
         {
             ((System.Windows.Controls.TextBlock)_levelLabel.Child).FontSize = 14 * scale;
