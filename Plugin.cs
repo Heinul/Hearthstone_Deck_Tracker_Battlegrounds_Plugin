@@ -23,7 +23,7 @@ public class Plugin : IPlugin
     public string Description => "Battlegrounds hero / trinket / comp stats from Firestone public data (personal Tier7 replacement)";
     public string ButtonText => "Self-check";
     public string Author => "Heinul";
-    public Version Version => new(0, 4, 3);
+    public Version Version => new(0, 4, 4);
     public MenuItem MenuItem => null!;
 
     // Self-update: HDT has no plugin updater. On load, compare the latest GitHub release tag with Version; if newer, drop
@@ -93,6 +93,7 @@ public class Plugin : IPlugin
         var all = Heroes(duos, 100);
         var pct = all == null ? 100 : HeroStats.Bucket(game.CurrentBattlegroundsRating, all.MmrPercentiles);
         var tribes = Tribes();
+        GuidesTick(pct, tribes);
 
         if (!game.IsBattlegroundsHeroPickingDone)
         {
@@ -249,6 +250,77 @@ public class Plugin : IPlugin
             shown = true;
         }
         _shopPanel.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // Comp guides tab: HDT's free list is alphabetical; Tier7 groups guides into S..D tiers for the lobby. We rebuild that
+    // grouping from Firestone data: each guide's core cards are matched against archetype first-place boards, the best
+    // archetype's average placement gives the tier. `CompsByTier` has a private setter -> reflection (HDT 1.57.12).
+    static readonly System.Reflection.MethodInfo? SetCompsByTier =
+        typeof(Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds.Guides.BattlegroundsCompsGuidesViewModel).GetProperty("CompsByTier")?.GetSetMethod(true);
+    string _guidesApplied = "";
+
+    void GuidesTick(int pct, List<int> tribes)
+    {
+        if (SetCompsByTier == null) return;
+        var vm = Core.OverlayWindow.BattlegroundsCompsGuidesVM;
+        var guides = vm.Comps;
+        var stats = _comps.Get();
+        if (guides == null || guides.Count == 0 || stats == null) { if (vm.CompsByTier == null) _guidesApplied = ""; return; }
+        var key = $"{pct}|{string.Join("/", tribes)}|{guides.Count}";
+        if (key == _guidesApplied && vm.CompsByTier != null) return;   // HDT resets CompsByTier at match end / refresh -> re-apply
+
+        var total = stats.Comps.Sum(c => c.DataPoints);
+        var playable = stats.Comps.Where(c => c.Tribe == null || tribes.Count == 0 || tribes.Contains(c.Tribe.Value)).ToList();
+        var ranked = new List<(Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds.Guides.Comps.BattlegroundsCompGuideViewModel guide, double avg)>();
+        var unranked = new List<Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds.Guides.Comps.BattlegroundsCompGuideViewModel>();
+        foreach (var g in guides)
+        {
+            var tribe = g.CompGuide.PrimaryTribe;
+            if (tribes.Count > 0 && tribe != 0 && !tribes.Contains(tribe)) continue;   // not playable in this lobby (Tier7 hides these too)
+            var core = (g.CompGuide.CoreCards ?? new List<int>()).Select(d => HearthDb.Cards.DbfIdToCardId.TryGetValue(d, out var id) ? id : null).Where(id => id != null).Select(id => id!).ToList();
+            var best = playable
+                .Where(c => c.Tribe == null || tribe == 0 || c.Tribe == tribe)
+                .Select(c => (comp: c, score: core.Count == 0 ? 0 : core.Average(id => c.Fit(id))))
+                .OrderByDescending(x => x.score).FirstOrDefault();
+            if (best.comp != null && best.score >= 0.08)
+                ranked.Add((g, best.comp.AtMmr.TryGetValue(pct, out var a) && a.dataPoints >= 100 ? a.placement : best.comp.AveragePlacement ?? 9));
+            else unranked.Add(g);
+        }
+        // Tiers are relative among the lobby's guides: best 20% S, then 25% A, 25% B, 20% C, rest D.
+        var sorted = ranked.OrderBy(x => x.avg).ToList();
+        var byTier = new Dictionary<int, Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds.Guides.BattlegroundsCompsGuidesViewModel.TieredComps>();
+        for (var i = 0; i < sorted.Count; i++)
+        {
+            var q = (i + 0.5) / sorted.Count;
+            var tier = q < 0.20 ? 1 : q < 0.45 ? 2 : q < 0.70 ? 3 : q < 0.90 ? 4 : 5;
+            if (!byTier.TryGetValue(tier, out var t))
+                byTier[tier] = t = new() { TierLetter = TierLetter(tier), TierColor = TierBrush(tier), Comps = new() };
+            t.Comps!.Add(sorted[i].guide);
+        }
+        if (unranked.Count > 0)
+            byTier[6] = new() { TierLetter = "?", TierColor = TierBrush(6), Comps = unranked.OrderBy(g => g.CompGuide.Name).ToList() };
+        SetCompsByTier.Invoke(vm, new object?[] { byTier.OrderBy(kv => kv.Key).ToDictionary(kv => kv.Key, kv => kv.Value) });
+        _guidesApplied = key;
+        Log.Info($"BgFree: comp guides tiered ({key}) ranked={sorted.Count} unranked={unranked.Count} hidden={guides.Count - sorted.Count - unranked.Count}");
+    }
+
+    static string TierLetter(int tier) => tier switch { 1 => "S", 2 => "A", 3 => "B", 4 => "C", 5 => "D", _ => "?" };
+
+    static System.Windows.Media.LinearGradientBrush TierBrush(int tier)
+    {
+        var (a, b) = tier switch   // HDT's own Tier7 palette
+        {
+            1 => ((64, 138, 191), (56, 95, 122)),
+            2 => ((107, 160, 54), (88, 121, 55)),
+            3 => ((146, 160, 54), (104, 121, 55)),
+            4 => ((160, 124, 54), (121, 95, 55)),
+            5 => ((160, 72, 54), (121, 66, 55)),
+            _ => ((112, 112, 112), (64, 64, 64)),
+        };
+        var brush = new System.Windows.Media.LinearGradientBrush { StartPoint = new Point(0, 0.5), EndPoint = new Point(1, 0.5) };
+        brush.GradientStops.Add(new System.Windows.Media.GradientStop(System.Windows.Media.Color.FromRgb((byte)a.Item1, (byte)a.Item2, (byte)a.Item3), 0));
+        brush.GradientStops.Add(new System.Windows.Media.GradientStop(System.Windows.Media.Color.FromRgb((byte)b.Item1, (byte)b.Item2, (byte)b.Item3), 1));
+        return brush;
     }
 
     // Fills a hint label for a minion: buy delta this turn, ★ key piece / ✕ off-comp. False when the card has no data.
