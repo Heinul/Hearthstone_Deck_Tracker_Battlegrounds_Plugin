@@ -40,7 +40,7 @@ irm https://raw.githubusercontent.com/Heinul/Hearthstone_Deck_Tracker_Battlegrou
 dotnet build
 ```
 
-HDT 설치 폴더(`%LocalAppData%\HearthstoneDeckTracker\app-1.57.12`)의 DLL을 참조합니다. HDT가 업데이트되면 `BgFree.csproj`의 `HdtDir`을 바꿉니다.
+HDT 설치 폴더(`%LocalAppData%\HearthstoneDeckTracker\app-1.58.0`)의 DLL을 참조합니다. HDT가 업데이트되면 `BgFree.csproj`의 `HdtDir`을 바꿉니다.
 빌드 결과는 곧바로 HDT 플러그인 폴더에 놓입니다.
 
 ## 알아둘 점
