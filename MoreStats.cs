@@ -259,11 +259,13 @@ public sealed class CompStats
         ["beast_beetle"] = "야수 딱정벌레", ["mech_magnet"] = "기계 자석", ["naga_groundbreaker"] = "나가 그라운드브레이커",
         ["beast_leviathan"] = "야수 리바이어던", ["naga_end_of_turn"] = "나가 턴 종료", ["quilboar_choose_one"] = "가시멧돼지 선택",
         ["murloc_mrrglton"] = "멀록 므르글튼", ["neutral_tea_set"] = "중립 티 세트", ["mech_automaton"] = "기계 오토마톤",
+        ["elemental_boost"] = "정령 강화",
     };
     static readonly Dictionary<string, int> Tribes = new()
     {
         ["pirate"] = 23, ["murloc"] = 14, ["dragon"] = 24, ["beast"] = 20, ["elemental"] = 18,
         ["demon"] = 15, ["undead"] = 11, ["mech"] = 17, ["naga"] = 92, ["quilboar"] = 43,
+        ["aberration"] = 126, ["aberrations"] = 126,   // 돌연변이, added 36.6.1 (2026-09-22); slug guessed until Firestone publishes one
     };
 
     public static string Label(string slug) => Names.TryGetValue(slug, out var n) ? n : slug.Replace('_', ' ');

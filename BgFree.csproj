@@ -8,7 +8,7 @@
     <RootNamespace>BgFree</RootNamespace>
     <AssemblyName>BgFree</AssemblyName>
     <!-- ponytail: HDT auto-update renames app-* dir; when build breaks, pass -p:HdtDir=... or bump this line -->
-    <HdtDir Condition="'$(HdtDir)' == ''">$(LOCALAPPDATA)\HearthstoneDeckTracker\app-1.57.12</HdtDir>
+    <HdtDir Condition="'$(HdtDir)' == ''">$(LOCALAPPDATA)\HearthstoneDeckTracker\app-1.58.0</HdtDir>
     <!-- DLL lands where HDT picks plugins up. Close HDT before building: the loaded copy is locked. -->
     <OutDir>$(APPDATA)\HearthstoneDeckTracker\Plugins\BgFree\</OutDir>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>

@@ -18,7 +18,7 @@ HDT가 이미 무료로 주는 기능(Bob's Buddy, 상대 보드, 하수인 목�
 
 ## 설치
 
-1. HDT를 설치하고 한 번 실행합니다.
+1. HDT(Hearthstone Deck Tracker)를 설치하고 한 번 실행합니다.
 2. [Releases](../../releases/latest)에서 `BgFreeSetup.exe`를 받아 실행합니다. ("Windows의 PC 보호" 창이 뜨면 추가 정보 → 실행. 서명되지 않은 파일이라 뜨는 경고입니다.)
 
 설치 프로그램이 HDT를 닫고, 최신 `BgFree.dll`을 플러그인 폴더에 넣고, 플러그인을 활성화하고, HDT 자체 Tier7 오버레이를 끈 뒤 HDT를 다시 켭니다.

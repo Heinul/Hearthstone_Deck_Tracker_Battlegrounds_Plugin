@@ -23,7 +23,7 @@ public class Plugin : IPlugin
     public string Description => "Battlegrounds hero / trinket / comp stats from Firestone public data (personal Tier7 replacement)";
     public string ButtonText => "Self-check";
     public string Author => "Heinul";
-    public Version Version => new(0, 4, 6);
+    public Version Version => new(0, 4, 7);
     public MenuItem MenuItem => null!;
 
     // Self-update: HDT has no plugin updater. On load, compare the latest GitHub release tag with Version; if newer, drop

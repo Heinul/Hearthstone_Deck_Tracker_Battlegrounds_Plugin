@@ -4,7 +4,8 @@ Goal: replicate HDT Tier7 paid overlays (hero / trinket / quest pick stats, comp
 
 ## Build / run
 - Close HDT first (loaded DLL is locked). Then `dotnet build` → `%APPDATA%\HearthstoneDeckTracker\Plugins\BgFree\BgFree.dll`.
-- HDT 1.57.12 at `%LOCALAPPDATA%\HearthstoneDeckTracker\app-1.57.12` (csproj `HdtDir`; bump after HDT auto-update).
+- HDT 1.58.0 at `%LOCALAPPDATA%\HearthstoneDeckTracker\app-1.58.0` (csproj `HdtDir`; bump after HDT auto-update — 2026-09-22 moved from 1.57.12, all reflection hooks re-verified present). Runtime refs resolve from whatever HDT is running, so an old build keeps working after HDT updates; only the build path needs the bump.
+- New tribe 2026-09-22: Aberrations (돌연변이) = HearthDb `Race.ABERRATION = 126`; Firestone data had no tribe 126 / no aberration archetype yet that day (slug guessed as `aberration_*`; fix `MoreStats.Tribes`/`Names` when it appears).
 - Enable once: HDT → Options → Plugins → BgFree. HDT log: `%APPDATA%\HearthstoneDeckTracker\Logs\hdt_log.txt`.
 - Fixture: `fixtures/Power.log` (209 MB, 6 full BG games, gitignored). Regex checks run against it.
 
