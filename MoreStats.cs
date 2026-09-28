@@ -250,18 +250,19 @@ public sealed class CompStats
         };
     }
 
-    // ponytail: hand-written slug -> Korean label + tribe. Unknown slugs fall back to the slug itself.
+    // ponytail: hand-written slug -> Korean label + tribe. Labels ≤ 7 chars: HDT's comp row clips the name at 120 px
+    // (13 px font, no tooltip), and a tier letter goes in front. Unknown slugs fall back to the slug itself.
     static readonly Dictionary<string, string> Names = new()
     {
         ["pirate_discover"] = "해적 발견", ["murloc_handbuff"] = "멀록 핸드버프", ["dragon_kalecgos"] = "용 칼렉고스",
         ["dragon_evoker"] = "용 기원사", ["beast_lobster"] = "야수 바닷가재", ["elemental_cycle"] = "정령 순환",
-        ["demon_self_damage"] = "악마 자해", ["demon_boost_shop"] = "악마 상점 강화", ["undead_butcher"] = "언데드 도살자",
-        ["beast_beetle"] = "야수 딱정벌레", ["mech_magnet"] = "기계 자석", ["naga_groundbreaker"] = "나가 그라운드브레이커",
-        ["beast_leviathan"] = "야수 리바이어던", ["naga_end_of_turn"] = "나가 턴 종료", ["quilboar_choose_one"] = "가시멧돼지 선택",
-        ["murloc_mrrglton"] = "멀록 므르글튼", ["neutral_tea_set"] = "중립 티 세트", ["mech_automaton"] = "기계 오토마톤",
+        ["demon_self_damage"] = "악마 자해", ["demon_boost_shop"] = "악마 상점강화", ["undead_butcher"] = "언데드 도살자",
+        ["beast_beetle"] = "야수 딱정벌레", ["mech_magnet"] = "기계 자석", ["naga_groundbreaker"] = "나가 그브",
+        ["beast_leviathan"] = "야수 리바이어", ["naga_end_of_turn"] = "나가 턴종료", ["quilboar_choose_one"] = "멧돼지 선택",
+        ["murloc_mrrglton"] = "멀록 므르글튼", ["neutral_tea_set"] = "중립 티세트", ["mech_automaton"] = "기계 오토마톤",
         ["elemental_boost"] = "정령 강화",
-        ["abberation_deathrattle"] = "돌연변이 죽메", ["abberation_discard"] = "돌연변이 버리기",
-        ["dragon_shield"] = "용 천상의 보호막", ["murloc_scam"] = "멀록 스캠", ["mech_glambot"] = "기계 글램봇", ["mech_volumizer"] = "기계 볼류마이저",
+        ["abberation_deathrattle"] = "돌연변이 죽메", ["abberation_discard"] = "돌연변이 버림",
+        ["dragon_shield"] = "용 천보", ["murloc_scam"] = "멀록 스캠", ["mech_glambot"] = "기계 글램봇", ["mech_volumizer"] = "기계 볼륨",
     };
     static readonly Dictionary<string, int> Tribes = new()
     {
@@ -329,26 +330,34 @@ public sealed class CompStats
         return mine;
     }
 
+    // Row name -> hover text, filled by ForHdt (HDT's row clips the name; the plugin attaches these as tooltips).
+    public readonly Dictionary<string, string> RowTooltips = new();
+
     // Rows for HDT's session panel: comps playable with the lobby's tribes, most popular first.
     public List<BattlegroundsCompStats.LobbyComp> ForHdt(int percentile, IReadOnlyCollection<int> tribes, int max = 8)
     {
         var total = Comps.Sum(c => c.DataPoints);
-        return Comps
+        var rows = Comps
             .Where(c => c.Tribe == null || tribes.Count == 0 || tribes.Contains(c.Tribe.Value))
             .OrderByDescending(c => c.DataPoints)
             .Take(max)
             .Select((c, i) =>
             {
                 var avg = c.AtMmr.TryGetValue(percentile, out var a) && a.dataPoints >= 100 ? a.placement : c.AveragePlacement ?? 0;
+                var tier = Cdn.Tier(avg)?.ToUpperInvariant() ?? "?";
+                var name = $"{tier} {Label(c.Archetype)}";   // HDT's row has no tier slot; prefix the name
+                lock (RowTooltips)
+                    RowTooltips[name] = $"{Label(c.Archetype)}  ({c.Archetype})\n티어 {tier} · 1위 점유 {c.Popularity(total):0.0}% · 평균 {avg:0.00}등 · {c.DataPoints:N0}판";
                 return new BattlegroundsCompStats.LobbyComp
                 {
                     Id = i + 1,
-                    Name = $"[{Cdn.Tier(avg)?.ToUpperInvariant() ?? "?"}] {Label(c.Archetype)}",   // HDT's row has no tier slot; prefix the name
+                    Name = name,
                     Popularity = c.Popularity(total),
                     KeyMinionsTop3 = c.KeyMinionDbfIds,
                     AvgFinalPlacement = avg,
                 };
             })
             .ToList();
+        return rows;
     }
 }

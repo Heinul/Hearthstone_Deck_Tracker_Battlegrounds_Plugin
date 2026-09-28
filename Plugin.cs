@@ -23,7 +23,7 @@ public class Plugin : IPlugin
     public string Description => "Battlegrounds hero / trinket / comp stats from Firestone public data (personal Tier7 replacement)";
     public string ButtonText => "Self-check";
     public string Author => "Heinul";
-    public Version Version => new(0, 4, 8);
+    public Version Version => new(0, 4, 9);
     public MenuItem MenuItem => null!;
 
     // Self-update: HDT has no plugin updater. On load, compare the latest GitHub release tag with Version; if newer, drop
@@ -489,12 +489,48 @@ public class Plugin : IPlugin
             var rows = stats.ForHdt(pct, tribes);
             vm.SetBattlegroundsCompositionStatsViewModel(rows);
             _compApplied = key;
+            _compTipUntil = DateTime.UtcNow.AddSeconds(8);   // rows render async; attach tooltips over the next ticks
             Log.Info($"BgFree: comp stats applied ({key}) rows={rows.Count} of {stats.Comps.Count}");
         }
+        if (DateTime.UtcNow < _compTipUntil) AttachCompTooltips(stats);
         if (vm.AvailableCompStatsSectionVisibility != Visibility.Visible) vm.AvailableCompStatsSectionVisibility = Visibility.Visible;
         if (vm.CompStatsBodyVisibility != Visibility.Visible) vm.CompStatsBodyVisibility = Visibility.Visible;
         if (vm.CompStatsWaitingMsgVisibility != Visibility.Collapsed) vm.CompStatsWaitingMsgVisibility = Visibility.Collapsed;
         if (vm.CompStatsErrorVisibility != Visibility.Hidden) vm.CompStatsErrorVisibility = Visibility.Hidden;
+    }
+
+    // HDT's comp row clips the name at 120 px and has no tooltip: find the rendered rows in the overlay's visual tree and
+    // attach one (hover-visible registration makes the click-through overlay accept the mouse over that element).
+    DateTime _compTipUntil;
+    readonly HashSet<FrameworkElement> _tipped = new();
+
+    void AttachCompTooltips(CompStats stats)
+    {
+        var stack = new Stack<System.Windows.DependencyObject>();
+        stack.Push(Core.OverlayWindow);
+        var done = 0;
+        while (stack.Count > 0)
+        {
+            var d = stack.Pop();
+            if (d is FrameworkElement fe && fe.GetType().Name == "BattlegroundsCompositionStatsRow")
+            {
+                var name = fe.DataContext?.GetType().GetProperty("Name")?.GetValue(fe.DataContext) as string;
+                string? tip;
+                lock (stats.RowTooltips) tip = name != null && stats.RowTooltips.TryGetValue(name, out var t) ? t : null;
+                if (tip != null && !(_tipped.Contains(fe) && Equals(System.Windows.Controls.ToolTipService.GetToolTip(fe), tip)))
+                {
+                    System.Windows.Controls.ToolTipService.SetToolTip(fe, tip);
+                    System.Windows.Controls.ToolTipService.SetInitialShowDelay(fe, 150);
+                    Hearthstone_Deck_Tracker.Utility.Extensions.OverlayExtensions.SetIsOverlayHoverVisible(fe, true);
+                    _tipped.Add(fe);
+                }
+                done++;
+                continue;   // rows have no interesting children
+            }
+            var n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(d);
+            for (var i = 0; i < n; i++) stack.Push(System.Windows.Media.VisualTreeHelper.GetChild(d, i));
+        }
+        if (done > 0 && done >= stats.RowTooltips.Count) _compTipUntil = DateTime.MinValue;   // all rows found; stop scanning
     }
 
     // Lobby tribes from HDT's memory reader; empty until it has read the lobby (or if it never does).
