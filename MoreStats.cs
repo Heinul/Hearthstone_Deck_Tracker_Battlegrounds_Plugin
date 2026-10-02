@@ -261,7 +261,8 @@ public sealed class CompStats
         ["beast_leviathan"] = "야수 리바이어", ["naga_end_of_turn"] = "나가 턴종료", ["quilboar_choose_one"] = "멧돼지 선택",
         ["murloc_mrrglton"] = "멀록 므르글튼", ["neutral_tea_set"] = "중립 티세트", ["mech_automaton"] = "기계 오토마톤",
         ["elemental_boost"] = "정령 강화",
-        ["abberation_deathrattle"] = "돌연변이 죽메", ["abberation_discard"] = "돌연변이 버림",
+        ["abberation_deathrattle"] = "돌연변이 죽메", ["abberation_discard"] = "돌연변이 버림",   // Firestone's first spelling (09-28)
+        ["aberration_deathrattle"] = "돌연변이 죽메", ["aberration_discard"] = "돌연변이 버림",     // corrected spelling (10-02)
         ["dragon_shield"] = "용 천보", ["murloc_scam"] = "멀록 스캠", ["mech_glambot"] = "기계 글램봇", ["mech_volumizer"] = "기계 볼륨",
     };
     static readonly Dictionary<string, int> Tribes = new()
