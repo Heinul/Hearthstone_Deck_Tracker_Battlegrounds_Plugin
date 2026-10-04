@@ -167,6 +167,8 @@ public sealed class CompStats
         public int? Tribe;                          // HearthDb Race value from the slug prefix; null = any lobby
         public List<Board> Boards = new();          // real first-place boards, highest MMR first
         public Dictionary<string, double> CardFreq = new();   // cardId -> share of this comp's first-place boards containing it
+        public long FirstPlaces, PlacementGames;    // from placementDistribution: games that ended 1st / all placed games
+        public double OwnFirstRate => PlacementGames > 0 ? 100.0 * FirstPlaces / PlacementGames : 0;
         public double Popularity(long total) => total > 0 ? 100.0 * DataPoints / total : 0;
         public double Fit(string cardId) => CardFreq.TryGetValue(cardId, out var f) ? f : 0;
     }
@@ -213,7 +215,13 @@ public sealed class CompStats
         [JsonProperty("dataPoints")] public long DataPoints { get; set; }
         [JsonProperty("averagePlacement")] public double? AveragePlacement { get; set; }
         [JsonProperty("averagePlacementAtMmr")] public List<TrinketStats.AtMmr>? AveragePlacementAtMmr { get; set; }
+        [JsonProperty("placementDistribution")] public List<RawPlacement>? PlacementDistribution { get; set; }
         [JsonProperty("heroStats")] public List<RawHero>? HeroStats { get; set; }
+    }
+    sealed class RawPlacement
+    {
+        [JsonProperty("rank")] public int Rank { get; set; }
+        [JsonProperty("totalMatches")] public long TotalMatches { get; set; }
     }
     sealed class RawHero
     {
@@ -279,12 +287,13 @@ public sealed class CompStats
         var json = await Cdn.GetAsync("comp-stats/past-seven/overview-from-hourly.gz.json", TimeSpan.FromHours(6)).ConfigureAwait(false);
         var root = JsonConvert.DeserializeObject<Root>(json) ?? new Root();
         var comps = new List<Comp>();
-        foreach (var raw in root.CompStats ?? new List<RawComp>())
+        // Firestone renamed abberation_* -> aberration_* mid-window, so both slugs coexist for a week: merge by normalized slug.
+        foreach (var group in (root.CompStats ?? new List<RawComp>()).Where(r => r.Archetype != null)
+                     .GroupBy(r => r.Archetype!.Replace("abberation", "aberration")))
         {
-            if (raw.Archetype == null) continue;
             var counts = new Dictionary<string, int>();
             var boards = new List<Board>();
-            foreach (var hero in raw.HeroStats ?? new())
+            foreach (var hero in group.SelectMany(r => r.HeroStats ?? new()))
             {
                 if (hero.HeroCardId == null) continue;
                 foreach (var rb in hero.FinalBoards ?? new())
@@ -300,21 +309,29 @@ public sealed class CompStats
                     if (board.Minions.Count > 0) boards.Add(board);
                 }
             }
-            var prefix = raw.Archetype.Split('_')[0];
+            static double? Weighted(IEnumerable<(double value, long weight)> xs)
+            {
+                var list = xs.Where(x => x.weight > 0).ToList();
+                var w = list.Sum(x => x.weight);
+                return w > 0 ? list.Sum(x => x.value * x.weight) / w : null;
+            }
+            var placements = group.SelectMany(r => r.PlacementDistribution ?? new()).ToList();
             comps.Add(new Comp
             {
-                Archetype = raw.Archetype,
-                DataPoints = raw.DataPoints,
-                AveragePlacement = raw.AveragePlacement,
-                AtMmr = (raw.AveragePlacementAtMmr ?? new()).Where(a => a.Placement != null).GroupBy(a => a.Percentile)
-                    .ToDictionary(g => g.Key, g => (g.First().DataPoints, g.First().Placement!.Value)),
+                Archetype = group.Key,
+                DataPoints = group.Sum(r => r.DataPoints),
+                AveragePlacement = Weighted(group.Where(r => r.AveragePlacement != null).Select(r => (r.AveragePlacement!.Value, r.DataPoints))),
+                AtMmr = group.SelectMany(r => r.AveragePlacementAtMmr ?? new()).Where(a => a.Placement != null).GroupBy(a => a.Percentile)
+                    .ToDictionary(g => g.Key, g => (g.Sum(a => a.DataPoints), Weighted(g.Select(a => (a.Placement!.Value, a.DataPoints))) ?? g.First().Placement!.Value)),
                 KeyMinionDbfIds = counts.OrderByDescending(kv => kv.Value).Take(3)
                     .Select(kv => HearthDb.Cards.All.TryGetValue(kv.Key, out var card) ? card.DbfId : 0).Where(d => d != 0).ToList(),
-                Tribe = Tribes.TryGetValue(prefix, out var t) ? t : null,
+                Tribe = Tribes.TryGetValue(group.Key.Split('_')[0], out var t) ? t : null,
                 Boards = boards.OrderByDescending(b => b.Mmr).ToList(),
                 CardFreq = boards.Count == 0 ? new() : boards
                     .SelectMany(b => b.Minions.Select(m => m.CardId).Distinct())
                     .GroupBy(id => id).ToDictionary(g => g.Key, g => (double)g.Count() / boards.Count),
+                FirstPlaces = placements.Where(p => p.Rank == 1).Sum(p => p.TotalMatches),
+                PlacementGames = placements.Sum(p => p.TotalMatches),
             });
         }
         return new CompStats { LastUpdate = root.LastUpdateDate ?? default, DataPoints = root.DataPoints, Comps = comps };
@@ -337,10 +354,13 @@ public sealed class CompStats
     // Rows for HDT's session panel: comps playable with the lobby's tribes, most popular first.
     public List<BattlegroundsCompStats.LobbyComp> ForHdt(int percentile, IReadOnlyCollection<int> tribes, int max = 8)
     {
-        var total = Comps.Sum(c => c.DataPoints);
-        var rows = Comps
-            .Where(c => c.Tribe == null || tribes.Count == 0 || tribes.Contains(c.Tribe.Value))
-            .OrderByDescending(c => c.DataPoints)
+        // HDT's column is "1위": share of first-place finishes, among comps playable in this lobby (its FirstPlaceCompsLobbyRaces).
+        var playable = Comps.Where(c => c.Tribe == null || tribes.Count == 0 || tribes.Contains(c.Tribe.Value)).ToList();
+        var firsts = playable.Sum(c => c.FirstPlaces);
+        var games = playable.Sum(c => c.DataPoints);
+        double Share(Comp c) => firsts > 0 ? 100.0 * c.FirstPlaces / firsts : c.Popularity(games);   // feed without placements -> game share
+        var rows = playable
+            .OrderByDescending(Share)
             .Take(max)
             .Select((c, i) =>
             {
@@ -348,12 +368,12 @@ public sealed class CompStats
                 var tier = Cdn.Tier(avg)?.ToUpperInvariant() ?? "?";
                 var name = $"{tier} {Label(c.Archetype)}";   // HDT's row has no tier slot; prefix the name
                 lock (RowTooltips)
-                    RowTooltips[name] = $"{Label(c.Archetype)}  ({c.Archetype})\n티어 {tier} · 1위 점유 {c.Popularity(total):0.0}% · 평균 {avg:0.00}등 · {c.DataPoints:N0}판";
+                    RowTooltips[name] = $"{Label(c.Archetype)}  ({c.Archetype})\n티어 {tier} · 이 로비 1등 중 {Share(c):0.0}% · 이 조합의 1등률 {c.OwnFirstRate:0.0}%\n평균 {avg:0.00}등 · {c.DataPoints:N0}판";
                 return new BattlegroundsCompStats.LobbyComp
                 {
                     Id = i + 1,
                     Name = name,
-                    Popularity = c.Popularity(total),
+                    Popularity = Share(c),
                     KeyMinionsTop3 = c.KeyMinionDbfIds,
                     AvgFinalPlacement = avg,
                 };
