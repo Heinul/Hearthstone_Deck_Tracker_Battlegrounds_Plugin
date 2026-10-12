@@ -272,6 +272,8 @@ public sealed class CompStats
         ["abberation_deathrattle"] = "돌연변이 죽메", ["abberation_discard"] = "돌연변이 버림",   // Firestone's first spelling (09-28)
         ["aberration_deathrattle"] = "돌연변이 죽메", ["aberration_discard"] = "돌연변이 버림",     // corrected spelling (10-02)
         ["dragon_shield"] = "용 천보", ["murloc_scam"] = "멀록 스캠", ["mech_glambot"] = "기계 글램봇", ["mech_volumizer"] = "기계 볼륨",
+        ["elemental_tempest"] = "정령 템페스트", ["elemental_azerite"] = "정령 아제라", ["mech_apm"] = "기계 APM",
+        ["quilboar_felboar_spam"] = "멧돼지 스팸", ["dragon_spell_power"] = "용 주문력",   // 10-12
     };
     static readonly Dictionary<string, int> Tribes = new()
     {
