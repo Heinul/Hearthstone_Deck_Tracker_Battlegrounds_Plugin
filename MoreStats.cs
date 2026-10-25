@@ -274,6 +274,8 @@ public sealed class CompStats
         ["dragon_shield"] = "용 천보", ["murloc_scam"] = "멀록 스캠", ["mech_glambot"] = "기계 글램봇", ["mech_volumizer"] = "기계 볼륨",
         ["elemental_tempest"] = "정령 템페스트", ["elemental_azerite"] = "정령 아제라", ["mech_apm"] = "기계 APM",
         ["quilboar_felboar_spam"] = "멧돼지 스팸", ["dragon_spell_power"] = "용 주문력",   // 10-12
+        ["quilboar_gem_spam"] = "멧돼지 보석", ["undead_eternal_knight"] = "언데드 기사", ["pirate_bounty"] = "해적 현상금",
+        ["undead_apm"] = "언데드 APM", ["murloc_end_of_turn"] = "멀록 턴종료",   // 10-25
     };
     static readonly Dictionary<string, int> Tribes = new()
     {

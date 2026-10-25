@@ -12,9 +12,8 @@
 | 세션 패널 | 이번 로비 종족으로 가능한 조합의 점유율·평균 순위 (솔로) | Firestone comp-stats |
 | 영웅 선택 직후 | 내 영웅의 실제 1등 최종 보드 예시 (HDT Inspiration 패널, 전구 버튼으로 다시 열기) | Firestone comp-stats 최종 보드 |
 | 선술집 | 하수인별 구매 시 순위 기대차(`+0.6`), 내 보드로 추정한 조합과의 궁합(`★` / `✕`), 예상 조합 | Firestone card-stats + 1등 보드 빈도 |
-| 선술집 | HDT 선술집 핀 패널 활성화 | HDT |
 
-HDT가 이미 무료로 주는 기능(Bob's Buddy, 상대 보드, 하수인 목록, 세션 기록)은 건드리지 않습니다.
+HDT가 이미 무료로 주는 기능(Bob's Buddy, 상대 보드, 하수인 목록, 선술집 핀, 세션 기록)은 건드리지 않습니다.
 
 ## 설치
 
@@ -40,7 +39,7 @@ irm https://raw.githubusercontent.com/Heinul/Hearthstone_Deck_Tracker_Battlegrou
 dotnet build
 ```
 
-HDT 설치 폴더(`%LocalAppData%\HearthstoneDeckTracker\app-1.58.10`)의 DLL을 참조합니다. HDT가 업데이트되면 `BgFree.csproj`의 `HdtDir`을 바꿉니다.
+HDT 설치 폴더(`%LocalAppData%\HearthstoneDeckTracker\app-1.59.7`)의 DLL을 참조합니다. HDT가 업데이트되면 `BgFree.csproj`의 `HdtDir`을 바꿉니다.
 빌드 결과는 곧바로 HDT 플러그인 폴더에 놓입니다.
 
 ## 알아둘 점

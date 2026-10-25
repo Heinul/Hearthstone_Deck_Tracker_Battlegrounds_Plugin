@@ -23,7 +23,7 @@ public class Plugin : IPlugin
     public string Description => "Battlegrounds hero / trinket / comp stats from Firestone public data (personal Tier7 replacement)";
     public string ButtonText => "Self-check";
     public string Author => "Heinul";
-    public Version Version => new(0, 4, 12);
+    public Version Version => new(0, 4, 13);
     public MenuItem MenuItem => null!;
 
     // Self-update: HDT has no plugin updater. On load, compare the latest GitHub release tag with Version; if newer, drop
@@ -128,8 +128,6 @@ public class Plugin : IPlugin
     {
         var overlay = Core.OverlayWindow;
         var shopping = !game.IsBattlegroundsCombatPhase;
-        if (shopping && Hearthstone_Deck_Tracker.Config.Instance.ShowBattlegroundsBrowser && overlay.BgsMinionPinningVisibility != Visibility.Visible)
-            overlay.BgsMinionPinningVisibility = Visibility.Visible;   // HDT's tavern pinning: client-side only, Tier7-gated by HDT
 
         if (_shopPanel.Parent == null) { Core.OverlayCanvas.Children.Add(_shopPanel); System.Windows.Controls.Panel.SetZIndex(_shopPanel, 100); _shopPanel.Children.Add(_shopHeader); _shopPanel.Children.Add(_levelLabel); }
         if (!_cards.TryGetValue(pct, out var loader))
@@ -261,6 +259,7 @@ public class Plugin : IPlugin
     // archetype's average placement gives the tier. `CompsByTier` has a private setter -> reflection (HDT 1.57.12).
     static readonly System.Reflection.MethodInfo? SetCompsByTier =
         typeof(Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds.Guides.BattlegroundsCompsGuidesViewModel).GetProperty("CompsByTier")?.GetSetMethod(true);
+    static readonly System.Reflection.PropertyInfo? AdjustedTierProp = typeof(HSReplay.Responses.BattlegroundsCompGuide).GetProperty("AdjustedTier");   // HSReplay 1.59+ (int?); null on older HDT -> base Tier
     string _guidesApplied = "";
 
     void GuidesTick(int pct, List<int> tribes)
@@ -273,7 +272,7 @@ public class Plugin : IPlugin
         var key = $"{pct}|{string.Join("/", tribes)}|{guides.Count}";
         if (key == _guidesApplied && vm.CompsByTier != null) return;   // HDT resets CompsByTier at match end / refresh -> re-apply
 
-        // Tier = the guide's own tier (the badge HDT shows inside the guide), so list and detail agree. Guides without one
+        // Tier = the guide's own tier, lobby-adjusted when HDT 1.59+ provides one (the badge HDT shows inside the guide), so list and detail agree. Guides without one
         // get a Firestone-derived tier from the best-matching archetype's average placement. Lobby filter as Tier7 does.
         var playable = stats.Comps.Where(c => c.Tribe == null || tribes.Count == 0 || tribes.Contains(c.Tribe.Value)).ToList();
         var byTier = new Dictionary<int, Hearthstone_Deck_Tracker.Controls.Overlay.Battlegrounds.Guides.BattlegroundsCompsGuidesViewModel.TieredComps>();
@@ -281,7 +280,7 @@ public class Plugin : IPlugin
         foreach (var g in guides)
         {
             var tribe = g.CompGuide.PrimaryTribe;
-            var tier = g.CompGuide.Tier;
+            var tier = AdjustedTierProp?.GetValue(g.CompGuide) as int? ?? g.CompGuide.Tier;
             if (tribes.Count > 0 && tribe != 0 && !tribes.Contains(tribe)) { hidden++; tier = 7; }   // tribe not in this lobby: kept, grouped last
             else if (tier is < 1 or > 5)
             {
@@ -300,8 +299,8 @@ public class Plugin : IPlugin
                 byTier[tier] = t = new() { TierLetter = TierLetter(tier), TierColor = TierBrush(tier), Comps = new() };
             t.Comps!.Add(g);
         }
-        foreach (var t in byTier.Values)
-            t.Comps = t.Comps!.OrderBy(g => g.CompGuide.TierRank).ThenBy(g => g.CompGuide.Name).ToList();
+        foreach (var kv in byTier)   // HDT's own order inside a tier: demoted comps first, then base tier, then rank
+            kv.Value.Comps = kv.Value.Comps!.OrderBy(g => Math.Sign(g.CompGuide.Tier - kv.Key)).ThenBy(g => g.CompGuide.Tier).ThenBy(g => g.CompGuide.TierRank).ThenBy(g => g.CompGuide.Name).ToList();
         SetCompsByTier.Invoke(vm, new object?[] { byTier.OrderBy(kv => kv.Key).ToDictionary(kv => kv.Key, kv => kv.Value) });
         _guidesApplied = key;
         Log.Info($"BgFree: comp guides tiered ({key}) shown={guides.Count - hidden} hidden={hidden} tierFromData={fromData}");
